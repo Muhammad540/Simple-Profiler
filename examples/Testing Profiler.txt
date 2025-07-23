@@ -1,0 +1,13 @@
+=== PROFILER RESULTS ===
+Timestamp: Wed Jul 23 03:01:12 2025
+Total time: 41.6512ms (CPU freq ~3193819522 Hz)
+
+Function/Block                   Hits   Cycles          ms (Total) ms (Exc)   % Total    % Excl.    Location
+--------------------------------------------------------------------------------------------------------------------------------
+another_function                 1      80121952        25.09      0.00       60.23      0.00       main.cpp:37
+main                             1      133022336       41.65      0.00       100.00     0.00       main.cpp:52
+long_work                        1      36721760        11.50      10.09      27.60      24.22      main.cpp:20
+short_work                       101    4574240         1.43       1.43       3.44       3.44       main.cpp:9
+Inner Loop                       1      4509120         1.41       0.00       3.39       0.01       main.cpp:24
+Final Cleanup                    1      16176352        5.06       5.06       12.16      12.16      main.cpp:60
+Waiting                          1      80040480        25.06      25.06      60.17      60.17      main.cpp:40
