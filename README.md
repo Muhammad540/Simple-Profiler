@@ -1,3 +1,5 @@
+# ![Logo](logo.png)
+
 # A Simple C++ Profiler
 
 A header only, RAII based, low overhead profiler for C++ projects. It's designed for ease of use, requiring no complex build steps and providing a clear, hierarchical view of your application's performance.
