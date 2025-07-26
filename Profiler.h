@@ -48,8 +48,8 @@ constexpr u32 hash_string(const char* str) {
 #define PROFILE_HASH(label) (hash_string(__FILE__) ^ hash_string(label) ^ __LINE__)
 
 struct ProfileStorage {
-    u64 counter_elapsed;
-    u64 children_counter_elapsed;
+    u64 exclusive_time;
+    u64 inclusive_time;
     u64 number_of_touches;
     const char* label;
     const char* function;
@@ -123,62 +123,54 @@ static u64 EstimateCPUFreq() {
     return (u64)(elapsed_cycles / elapsed_seconds);
 }
 
-static void EndAndPrintProfile(SimpleProfiler* profiler, const char* filename = "profile_results.txt") {
+static void EndAndPrintProfile(SimpleProfiler* profiler,const char* filename = "profile_results.txt") {
     profiler->EndTimePoint = ReadCPUTimer();
-    u64 total_counter_elapsed = profiler->EndTimePoint - profiler->StartTimePoint;
-    u64 cpu_freq = EstimateCPUFreq();
+    u64 total_cycles = profiler->EndTimePoint - profiler->StartTimePoint;
+    u64 cpu_freq     = EstimateCPUFreq();
 
-    FILE* file = fopen(filename, "w");
-    if (!file) {
-        std::cerr << "Failed to open file for writing: " << filename << std::endl;
-        return;
+    FILE* f = fopen(filename, "w");
+    if (!f) { std::cerr << "Cannot write " << filename << '\n'; return; }
+
+    fprintf(f, "=== PROFILER RESULTS ===\n");
+    time_t now = time(nullptr);
+    fprintf(f, "Timestamp: %s", ctime(&now));
+
+    if (cpu_freq)
+        fprintf(f, "Total time: %.4f ms (cpu ≈ %" PRIu64 " Hz)\n\n",
+                1000.0 * (double)total_cycles / (double)cpu_freq, cpu_freq);
+    else
+        fprintf(f, "Total cycles: %" PRIu64 "\n\n", total_cycles);
+
+    fprintf(f, "%-32s %-6s %-15s %-10s %-10s %-10s %-10s %s\n",
+            "Function/Block", "Hits", "Cycles",
+            "ms (Total)", "ms (Exc)", "% Total", "% Incl.", "Location");
+    fprintf(f, "%s\n",
+            "----------------------------------------------------------------"
+            "------------------------------------------------------------------------");
+
+    for (u32 i = 0; i < SimpleProfiler::MAX_STORAGE_SIZE; ++i) {
+        ProfileStorage* s = &profiler->storage[i];
+        if (!s->inclusive_time) continue;
+
+        u64 cyc_exc = s->exclusive_time;
+        u64 cyc_inc = s->inclusive_time;
+
+        double ms_exc = cpu_freq ? 1000.0 * (double)cyc_exc / (double)cpu_freq : 0.0;
+        double ms_inc = cpu_freq ? 1000.0 * (double)cyc_inc / (double)cpu_freq : 0.0;
+
+        double pct_total = 100.0 * (double)cyc_exc / (double)total_cycles;
+        double pct_incl  = 100.0 * (double)cyc_inc / (double)total_cycles;
+
+        const char* file_part = strrchr(s->file, '/') ? strrchr(s->file, '/') + 1 : s->file;
+
+        fprintf(f, "%-32s %-6" PRIu64 " %-15" PRIu64
+                   " %-10.2f %-10.2f %-10.2f %-10.2f %s:%u\n",
+                s->label, s->number_of_touches, cyc_inc,
+                ms_inc, ms_exc, pct_total, pct_incl,
+                file_part, s->line);
     }
 
-    fprintf(file, "=== PROFILER RESULTS ===\n");
-    time_t current_time = time(nullptr);
-    fprintf(file, "Timestamp: %s", ctime(&current_time));
-
-    if (cpu_freq > 0) {
-        f64 total_time_ms = 1000.0 * (f64)total_counter_elapsed / (f64)cpu_freq;
-        fprintf(file, "Total time: %.4fms (CPU freq ~%" PRIu64 " Hz)\n\n", total_time_ms, cpu_freq);
-    } else {
-        fprintf(file, "Total time: %" PRIu64 " cycles\n\n", total_counter_elapsed);
-    }
-
-    fprintf(file, "%-32s %-6s %-15s %-10s %-10s %-10s %-10s %s\n", 
-        "Function/Block", "Hits", "Cycles", "ms (Total)", "ms (Exc)", "% Total", "% Excl.", "Location");
-    fprintf(file, "%s\n", "--------------------------------"
-                        "--------------------------------------------------------------------------------"
-                        "----------------");
-    for (u32 i = 0; i < SimpleProfiler::MAX_STORAGE_SIZE; i++) {
-        ProfileStorage* storage = &profiler->storage[i];
-        if (storage->counter_elapsed > 0) {
-            u64 exclusive_time_cycles = storage->counter_elapsed - storage->children_counter_elapsed;
-            
-            f64 total_percent = 100.0 * (f64)storage->counter_elapsed / (f64)total_counter_elapsed;
-            f64 exclusive_percent = 100.0 * (f64)exclusive_time_cycles / (f64)total_counter_elapsed;
-
-            f64 total_ms = 0.0;
-            f64 exclusive_ms = 0.0;
-            if (cpu_freq > 0) {
-                total_ms = 1000.0 * (f64)storage->counter_elapsed / (f64)cpu_freq;
-                exclusive_ms = 1000.0 * (f64)exclusive_time_cycles / (f64)cpu_freq;
-            }
-
-            fprintf(file, "%-32s %-6" PRIu64 " %-15" PRIu64 " %-10.2f %-10.2f %-10.2f %-10.2f %s:%u\n",
-                storage->label,
-                storage->number_of_touches,
-                storage->counter_elapsed,
-                total_ms,
-                exclusive_ms,
-                total_percent,
-                exclusive_percent,
-                strrchr(storage->file, '/') ? strrchr(storage->file, '/') + 1 : storage->file,
-                storage->line);
-        }
-    }
-
-    fclose(file);   
+    fclose(f);
     printf("Profile results saved to %s\n", filename);
 }
 
@@ -186,6 +178,7 @@ class ProfilingSession {
     public:
         ProfilingSession(const std::string& filename = "profile_results.txt") : output_filename_(filename) {
             memset(&profiler_, 0, sizeof(profiler_));
+            profiler_.ParentIndex = 0;
             profiler_.StartTimePoint = ReadCPUTimer();
             global_profiler = &profiler_;
         }
@@ -204,6 +197,7 @@ struct ProfileBlock {
     ProfileStorage* storage;
     u64 StartTimePoint;
     u32 parent_index;
+    u64 old_timer_elapsed_inclusive;
 
     ProfileBlock(const char* label, const char* function, const char* file, u32 line) {
         if (global_profiler == nullptr) {
@@ -222,6 +216,7 @@ struct ProfileBlock {
         }
 
         if (storage->label == nullptr) {
+            memset(storage, 0, sizeof(*storage));
             storage->label = label;
             storage->function = function;
             storage->file = file;
@@ -230,6 +225,7 @@ struct ProfileBlock {
         }
         
         parent_index = global_profiler->ParentIndex;
+        old_timer_elapsed_inclusive = storage->inclusive_time;
         global_profiler->ParentIndex = global_profiler->get_storage_index(storage);
 
         StartTimePoint = ReadCPUTimer();
@@ -244,10 +240,15 @@ struct ProfileBlock {
         // reset the parent index to the previous block
         global_profiler->ParentIndex = parent_index;
 
-        // add the elapsed time to the children of the parent block
-        global_profiler->storage[parent_index].children_counter_elapsed += elapsed;
+        //1. subtracting the child time from the parent's exclusive time
+        if (parent_index != 0) {
+            global_profiler->storage[parent_index].exclusive_time -= elapsed;
+        }
 
-        storage->counter_elapsed += elapsed;
+        //2. add the elapsed time to this block
+        storage->exclusive_time += elapsed;
+        storage->inclusive_time = old_timer_elapsed_inclusive + elapsed;
+        
         storage->number_of_touches++;
     }
 };
