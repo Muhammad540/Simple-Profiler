@@ -1,0 +1,8 @@
+=== PROFILER RESULTS ===
+Timestamp: Fri Aug  8 23:46:23 2025
+Total time: 0.0476 ms (cpu ≈ 3193855563 Hz)
+
+Function/Block                   Hits   Cycles          ms (Total) ms (Exc)   % Total    % Incl.    B/s (MB)   B/s (GB)   Location
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ReadFile                         1      148864          0.05       0.01       30.37      97.92      0.00       0.00       bandwidth_read.cpp:25
+ReadFile                         1      102688          0.03       0.03       67.54      67.54      1128.03    1.10       bandwidth_read.cpp:36
