@@ -1,3 +1,6 @@
+/**
+* This example shows how to use the profiler to profile a recursive function.
+*/
 #define PROFILING_ENABLED 1
 #include "../Profiler.h"
 

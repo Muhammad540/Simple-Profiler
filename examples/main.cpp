@@ -1,4 +1,7 @@
 // IMPORTANT: Define this BEFORE including the profiler to enable it.
+/*
+* This example shows how to start a profiling session, profile functions and scoped regions in your code.
+*/
 #define PROFILING_ENABLED 1
 #include "../Profiler.h"
 

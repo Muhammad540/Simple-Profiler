@@ -1,0 +1,7 @@
+=== PROFILER RESULTS ===
+Timestamp: Sat Jul 26 20:39:48 2025
+Total time: 66.0420 ms (cpu ≈ 3193937929 Hz)
+
+Function/Block                   Hits   Cycles          ms (Total) ms (Exc)   % Total    % Incl.    Location
+----------------------------------------------------------------------------------------------------------------------------------------
+fib                              2692537 210922913       66.04      66.04      99.99      99.99      recursion_test.cpp:5
