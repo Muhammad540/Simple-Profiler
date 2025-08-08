@@ -10,13 +10,8 @@
 #include <cinttypes>
 #include <string>
 
-#if defined(_MSC_VER)
-    #include <intrin.h>
-    #define FORCE_INLINE __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-    #include <x86intrin.h>
-    #define FORCE_INLINE __attribute__((always_inline)) inline
-#endif
+#include <x86intrin.h>
+#define FORCE_INLINE __attribute__((always_inline)) inline
 
 using u32 = uint32_t;
 using u64 = uint64_t;
@@ -51,6 +46,7 @@ struct ProfileStorage {
     u64 exclusive_time;
     u64 inclusive_time;
     u64 number_of_touches;
+    u64 processedBytesCount;
     const char* label;
     const char* function;
     const char* file;
@@ -123,7 +119,8 @@ static u64 EstimateCPUFreq() {
     return (u64)(elapsed_cycles / elapsed_seconds);
 }
 
-static void EndAndPrintProfile(SimpleProfiler* profiler,const char* filename = "profile_results.txt") {
+
+static void EndAndPrintProfile(SimpleProfiler* profiler, const char* filename = "profile_results.txt") {
     profiler->EndTimePoint = ReadCPUTimer();
     u64 total_cycles = profiler->EndTimePoint - profiler->StartTimePoint;
     u64 cpu_freq     = EstimateCPUFreq();
@@ -135,18 +132,18 @@ static void EndAndPrintProfile(SimpleProfiler* profiler,const char* filename = "
     time_t now = time(nullptr);
     fprintf(f, "Timestamp: %s", ctime(&now));
 
-    if (cpu_freq)
+    if (cpu_freq) {
         fprintf(f, "Total time: %.4f ms (cpu ≈ %" PRIu64 " Hz)\n\n",
                 1000.0 * (double)total_cycles / (double)cpu_freq, cpu_freq);
-    else
+    } else {
         fprintf(f, "Total cycles: %" PRIu64 "\n\n", total_cycles);
+    }
 
-    fprintf(f, "%-32s %-6s %-15s %-10s %-10s %-10s %-10s %s\n",
+    fprintf(f, "%-32s %-6s %-15s %-10s %-10s %-10s %-10s %-10s %-10s %s\n",
             "Function/Block", "Hits", "Cycles",
-            "ms (Total)", "ms (Exc)", "% Total", "% Incl.", "Location");
+            "ms (Total)", "ms (Exc)", "% Total", "% Incl.", "B/s (MB)", "B/s (GB)", "Location");
     fprintf(f, "%s\n",
-            "----------------------------------------------------------------"
-            "------------------------------------------------------------------------");
+            "---------------------------------------------------------------------------------------------------------------------------------------------------");
 
     for (u32 i = 0; i < SimpleProfiler::MAX_STORAGE_SIZE; ++i) {
         ProfileStorage* s = &profiler->storage[i];
@@ -155,19 +152,41 @@ static void EndAndPrintProfile(SimpleProfiler* profiler,const char* filename = "
         u64 cyc_exc = s->exclusive_time;
         u64 cyc_inc = s->inclusive_time;
 
-        double ms_exc = cpu_freq ? 1000.0 * (double)cyc_exc / (double)cpu_freq : 0.0;
-        double ms_inc = cpu_freq ? 1000.0 * (double)cyc_inc / (double)cpu_freq : 0.0;
+        double ms_exc = (cpu_freq > 0) ? 1000.0 * (double)cyc_exc / (double)cpu_freq : 0.0;
+        double ms_inc = (cpu_freq > 0) ? 1000.0 * (double)cyc_inc / (double)cpu_freq : 0.0;
 
-        double pct_total = 100.0 * (double)cyc_exc / (double)total_cycles;
-        double pct_incl  = 100.0 * (double)cyc_inc / (double)total_cycles;
+        double pct_total = (total_cycles > 0) ? 100.0 * (double)cyc_exc / (double)total_cycles : 0.0;
+        double pct_incl  = (total_cycles > 0) ? 100.0 * (double)cyc_inc / (double)total_cycles : 0.0;
 
-        const char* file_part = strrchr(s->file, '/') ? strrchr(s->file, '/') + 1 : s->file;
+        const char* base = s->file ? s->file : "";
+        if (const char* slash = strrchr(base, '/')) base = slash + 1;
+
+        double mbps = 0.0;
+        double gbps = 0.0;
+        if (s->processedBytesCount > 0 && cpu_freq > 0 && cyc_inc > 0) {
+            const double Megabyte = 1024.0 * 1024.0;
+            const double Gigabyte = Megabyte * 1024.0;
+            double seconds = (double)cyc_inc / (double)cpu_freq;
+            if (seconds > 0.0) {
+                double bps = (double)s->processedBytesCount / seconds;
+                mbps = bps / Megabyte;
+                gbps = bps / Gigabyte;
+            }
+        }
 
         fprintf(f, "%-32s %-6" PRIu64 " %-15" PRIu64
-                   " %-10.2f %-10.2f %-10.2f %-10.2f %s:%u\n",
-                s->label, s->number_of_touches, cyc_inc,
-                ms_inc, ms_exc, pct_total, pct_incl,
-                file_part, s->line);
+                   " %-10.2f %-10.2f %-10.2f %-10.2f %-10.2f %-10.2f %s:%u\n",
+                s->label,
+                s->number_of_touches,
+                cyc_inc,
+                ms_inc,
+                ms_exc,
+                pct_total,
+                pct_incl,
+                mbps,
+                gbps,
+                base,
+                s->line);
     }
 
     fclose(f);
@@ -199,7 +218,7 @@ struct ProfileBlock {
     u32 parent_index;
     u64 old_timer_elapsed_inclusive;
 
-    ProfileBlock(const char* label, const char* function, const char* file, u32 line) {
+    ProfileBlock(const char* label, const char* function, const char* file, u32 line, u64 processedBytesCount = 0) {
         if (global_profiler == nullptr) {
             // No active session, so this block should do nothing.
             storage = nullptr;
@@ -227,6 +246,7 @@ struct ProfileBlock {
         parent_index = global_profiler->ParentIndex;
         old_timer_elapsed_inclusive = storage->inclusive_time;
         global_profiler->ParentIndex = global_profiler->get_storage_index(storage);
+        storage->processedBytesCount += processedBytesCount;
 
         StartTimePoint = ReadCPUTimer();
     }
@@ -267,10 +287,13 @@ struct ProfileBlock {
 #define PROFILE_FUNCTION() \
     ProfileBlock PROFILE_CONCAT(__prof_block_, __LINE__)(__func__, __func__, __FILE__, __LINE__)
 
+#define PROFILE_BANDWIDTH(name, bytes) \
+    ProfileBlock PROFILE_CONCAT(__prof_block_, __LINE__)(name, __func__, __FILE__, __LINE__, bytes)
 #else
 
 #define PROFILE_SESSION(name)
 #define PROFILE_SCOPE(name)
 #define PROFILE_FUNCTION()
+#define PROFILE_BANDWIDTH(name, bytes)
 
 #endif
