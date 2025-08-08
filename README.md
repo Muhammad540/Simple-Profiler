@@ -13,6 +13,8 @@ A header only, RAII based, low overhead profiler for C++ projects. It's designed
 -   [x] **Simple API:** Use `PROFILE_FUNCTION()` and `PROFILE_SCOPE("name")` to instrument your code.
 -   [x] **Function Nesting Accuracy:** Accurately calculates Total (Inclusive) vs. Exclusive time by tracking the call hierarchy.
 -   [x] **Output File:** Stores profiling results in a text file whose name can be specified at runtime. The output is organized in a clear, tabular format for easy analysis.
+-   [x] **Bandwidth Profiling:** Track the bandwidth of data transfers for scoped regions.
+-   [x] **Recursive Function Support:** Correctly handle timing for recursive calls.
 
 ## How to Use
 
@@ -50,6 +52,7 @@ For a complete, runnable example, please see the `main.cpp` file inside the `/ex
 
 The profiler generates a clean, tabulated text file that helps you quickly identify bottlenecks. A (.txt) profiler output can look like this:
 
+### Profiling Output:
 ```text
 === PROFILER RESULTS ===
 Timestamp: Wed Jul 23 03:01:12 2025
@@ -64,6 +67,19 @@ short_work                       101    4574240         1.43       1.43       3.
 Inner Loop                       1      4509120         1.41       0.00       3.39       0.01       main.cpp:24
 Final Cleanup                    1      16176352        5.06       5.06       12.16      12.16      main.cpp:60
 Waiting                          1      80040480        25.06      25.06      60.17      60.17      main.cpp:40
+```
+
+### Bandwidth Profiling Output:
+
+```text
+=== PROFILER RESULTS ===
+Timestamp: Fri Aug  8 23:46:23 2025
+Total time: 0.0476 ms (CPU freq ~3193855563 Hz)
+
+Function/Block                   Hits   Cycles          ms (Total) ms (Exc)   % Total    % Incl.    B/s (MB)   B/s (GB)   Location
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ReadFile                         1      148864          0.05       0.01       30.37      97.92      0.00       0.00       bandwidth_read.cpp:25
+ReadFile                         1      102688          0.03       0.03       67.54      67.54      1128.03    1.10       bandwidth_read.cpp:36
 ```
 
 -   **Hits:** The number of times this block was executed. Note `short_work` was hit 101 times and the data was aggregated automatically.
